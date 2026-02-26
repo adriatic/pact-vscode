@@ -1,0 +1,1 @@
+{"version":3,"file":"supervisor.js","sourceRoot":"","sources":["../../src/ui/supervisor.ts"],"names":[],"mappings":";;;AAAA,MAAa,UAAU;IAErB,MAAM,CAAC,QAAQ;QACb,OAAO;YACL,SAAS,EAAE,aAAa;YACxB,MAAM,EAAE,UAAU;YAClB,QAAQ,EAAE,CAAC,wBAAwB,CAAC;YACpC,KAAK,EAAE,QAAQ;YACf,MAAM,EAAE,MAAM;YACd,IAAI,EAAE,KAAK;SACZ,CAAC;IACJ,CAAC;CACF;AAZD,gCAYC"}
