@@ -38,61 +38,38 @@ exports.deactivate = deactivate;
 const vscode = __importStar(require("vscode"));
 const path = __importStar(require("path"));
 const fs = __importStar(require("fs"));
-const hostPanel_1 = require("./ui/hostPanel");
 const promptParser_1 = require("./promptParser");
 const llm_1 = require("./llm");
 async function activate(context) {
-    console.log("PACT3 Host activated");
-    // -------------------------
-    // NEW CHAT
-    // -------------------------
-    context.subscriptions.push(vscode.commands.registerCommand("pact3.setApiKey", async () => {
-        const key = await vscode.window.showInputBox({
-            prompt: "Enter your OpenAI API key",
-            password: true,
-            ignoreFocusOut: true,
-        });
-        if (!key) {
-            vscode.window.showWarningMessage("No API key entered.");
-            return;
-        }
-        await context.secrets.store("pact.openaiApiKey", key);
-        vscode.window.showInformationMessage("PACT API key stored securely.");
+    console.log("PACT3 activated (file-based mode)");
+    context.subscriptions.push(vscode.commands.registerCommand("pact3.newChat", async () => {
+        await ensureWorkspace();
+        const chatDir = await createNewChat();
+        const promptPath = path.join(chatDir, "prompt.md");
+        const doc = await vscode.workspace.openTextDocument(promptPath);
+        await vscode.window.showTextDocument(doc);
+        vscode.window.showInformationMessage("New PACT3 chat created.");
     }));
-    // -------------------------
-    // OPEN HOST PANEL
-    // -------------------------
-    context.subscriptions.push(vscode.commands.registerCommand("pact3.openHost", () => {
-        hostPanel_1.HostPanel.createOrShow(context);
-    }));
-    // -------------------------
-    // SEND PROMPT TO LLM
-    // -------------------------
     context.subscriptions.push(vscode.commands.registerCommand("pact3.sendPrompt", async () => {
         const editor = vscode.window.activeTextEditor;
         if (!editor) {
             vscode.window.showErrorMessage("No active prompt file.");
             return;
         }
-        if (!vscode.workspace.workspaceFolders) {
-            vscode.window.showErrorMessage("Open a workspace folder first.");
-            return;
-        }
+        const raw = editor.document.getText();
         try {
-            const fileContent = editor.document.getText();
-            const workspaceRoot = vscode.workspace.workspaceFolders[0].uri.fsPath;
-            const parsed = (0, promptParser_1.parsePrompt)(fileContent, workspaceRoot);
-            // Use YOUR metadata structure
+            const workspaceRoot = vscode.workspace.workspaceFolders?.[0].uri.fsPath || "";
+            const parsed = (0, promptParser_1.parsePrompt)(raw, workspaceRoot);
             const model = parsed.metadata.model || "gpt-4.1";
-            const llmResponse = await (0, llm_1.sendStructuredToOpenAI)(context, parsed.content, model);
+            const responseText = await (0, llm_1.sendStructuredToOpenAI)(context, parsed.content, model);
             const responsePath = editor.document.uri.fsPath.replace("prompt.md", "response.md");
-            fs.writeFileSync(responsePath, llmResponse);
+            fs.writeFileSync(responsePath, responseText);
             const doc = await vscode.workspace.openTextDocument(responsePath);
             await vscode.window.showTextDocument(doc);
-            vscode.window.showInformationMessage("Response received from LLM.");
+            vscode.window.showInformationMessage("Response generated.");
         }
-        catch (error) {
-            vscode.window.showErrorMessage(error?.message || "PACT: Unknown error during LLM call.");
+        catch (err) {
+            vscode.window.showErrorMessage(err.message || "Unknown error.");
         }
     }));
 }
@@ -118,13 +95,7 @@ async function createNewChat() {
     const chatName = `chat-${String(existing + 1).padStart(3, "0")}`;
     const chatDir = path.join(chatsDir, chatName);
     fs.mkdirSync(chatDir);
-    fs.writeFileSync(path.join(chatDir, "prompt.md"), `---
-model: gpt-4.1
-temperature: 0.2
-overlay: none
----
-
-`);
+    fs.writeFileSync(path.join(chatDir, "prompt.md"), "# Prompt\n\n");
     fs.writeFileSync(path.join(chatDir, "response.md"), "");
     return chatDir;
 }

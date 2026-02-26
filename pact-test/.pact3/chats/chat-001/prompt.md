@@ -5,6 +5,3 @@ overlay: none
 ---
 
 Explain binary search in 3 sentences.
-
-
-

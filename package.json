@@ -24,10 +24,6 @@
       {
         "command": "pact3.sendPrompt",
         "title": "PACT3: Send Prompt"
-      },
-      {
-        "command": "pact3.openHost",
-        "title": "PACT3: Open Host"
       }
     ],
     "configuration": {
@@ -47,7 +43,7 @@
   },
   "devDependencies": {
     "@types/node": "^18.x",
-    "@types/vscode": "^1.85.0",
+    "@types/vscode": "^1.109.0",
     "typescript": "^5.3.3"
   },
   "dependencies": {
