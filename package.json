@@ -1,9 +1,8 @@
 {
-  "name": "pact3-host",
-  "displayName": "PACT3 Host",
-  "description": "Structured LLM workflow inside VSCode",
+  "name": "pact-vscode",
+  "displayName": "PACT",
+  "description": "Protocol-Aware Cognitive Tool",
   "version": "0.0.1",
-  "publisher": "nik",
   "engines": {
     "vscode": "^1.85.0"
   },
@@ -12,42 +11,45 @@
   ],
   "main": "./out/extension.js",
   "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "pactContainer",
+          "title": "PACT",
+          "icon": "resources/pact.svg"
+        }
+      ]
+    },
+    "views": {
+      "pactContainer": [
+        {
+          "id": "pact-vscode.pactView",
+          "name": "PACT",
+          "type": "webview"
+        }
+      ]
+    },
     "commands": [
       {
-        "command": "pact3.setApiKey",
-        "title": "PACT3: Set API Key"
+        "command": "pact.setApiKey",
+        "title": "PACT: Set API Key"
       },
       {
-        "command": "pact3.newChat",
-        "title": "PACT3: New Chat"
-      },
-      {
-        "command": "pact3.sendPrompt",
-        "title": "PACT3: Send Prompt"
+        "command": "pact.sendPrompt",
+        "title": "PACT: Send Prompt"
       }
-    ],
-    "configuration": {
-      "title": "PACT",
-      "properties": {
-        "pact.openaiApiKey": {
-          "type": "string",
-          "default": "",
-          "description": "OpenAI API Key for PACT"
-        }
-      }
-    }
+    ]
   },
   "scripts": {
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./"
   },
   "devDependencies": {
-    "@types/node": "^18.x",
-    "@types/vscode": "^1.109.0",
-    "typescript": "^5.3.3"
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.0.0"
   },
   "dependencies": {
-    "openai": "^6.22.0",
-    "uuid": "^13.0.0"
+    "openai": "^4.0.0"
   }
 }

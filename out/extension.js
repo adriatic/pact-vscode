@@ -32,71 +32,240 @@ var __importStar = (this && this.__importStar) || (function () {
         return result;
     };
 })();
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.activate = activate;
 exports.deactivate = deactivate;
 const vscode = __importStar(require("vscode"));
-const path = __importStar(require("path"));
-const fs = __importStar(require("fs"));
-const promptParser_1 = require("./promptParser");
-const llm_1 = require("./llm");
-async function activate(context) {
-    console.log("PACT3 activated (file-based mode)");
-    context.subscriptions.push(vscode.commands.registerCommand("pact3.newChat", async () => {
-        await ensureWorkspace();
-        const chatDir = await createNewChat();
-        const promptPath = path.join(chatDir, "prompt.md");
-        const doc = await vscode.workspace.openTextDocument(promptPath);
-        await vscode.window.showTextDocument(doc);
-        vscode.window.showInformationMessage("New PACT3 chat created.");
+const openai_1 = __importDefault(require("openai"));
+const moderator_1 = require("./moderator/moderator");
+function activate(context) {
+    const provider = new PactViewProvider(context);
+    context.subscriptions.push(vscode.window.registerWebviewViewProvider("pact-vscode.pactView", provider));
+    // Auto-open PACT container
+    vscode.commands.executeCommand("workbench.view.extension.pactContainer");
+    context.subscriptions.push(vscode.commands.registerCommand("pact.setApiKey", async () => {
+        const apiKey = await vscode.window.showInputBox({
+            prompt: "Enter your OpenAI API Key",
+            password: true,
+        });
+        if (!apiKey)
+            return;
+        await context.secrets.store("pact.openaiApiKey", apiKey.trim());
+        vscode.window.showInformationMessage("PACT API key stored.");
     }));
-    context.subscriptions.push(vscode.commands.registerCommand("pact3.sendPrompt", async () => {
-        const editor = vscode.window.activeTextEditor;
-        if (!editor) {
-            vscode.window.showErrorMessage("No active prompt file.");
+    context.subscriptions.push(vscode.commands.registerCommand("pact.sendPrompt", async () => {
+        provider.sendPrompt();
+    }));
+}
+class PactViewProvider {
+    constructor(context) {
+        this.context = context;
+    }
+    resolveWebviewView(webviewView) {
+        this.view = webviewView;
+        webviewView.webview.options = {
+            enableScripts: true,
+        };
+        webviewView.webview.html = this.getHtml();
+        webviewView.webview.onDidReceiveMessage(async (message) => {
+            if (message.type === "send") {
+                await this.sendPrompt(message.payload);
+            }
+        });
+    }
+    async sendPrompt(payload) {
+        if (!this.view)
+            return;
+        const text = payload?.text?.trim();
+        if (!text) {
+            vscode.window.showWarningMessage("Prompt is empty.");
             return;
         }
-        const raw = editor.document.getText();
-        try {
-            const workspaceRoot = vscode.workspace.workspaceFolders?.[0].uri.fsPath || "";
-            const parsed = (0, promptParser_1.parsePrompt)(raw, workspaceRoot);
-            const model = parsed.metadata.model || "gpt-4.1";
-            const responseText = await (0, llm_1.sendStructuredToOpenAI)(context, parsed.content, model);
-            const responsePath = editor.document.uri.fsPath.replace("prompt.md", "response.md");
-            fs.writeFileSync(responsePath, responseText);
-            const doc = await vscode.workspace.openTextDocument(responsePath);
-            await vscode.window.showTextDocument(doc);
-            vscode.window.showInformationMessage("Response generated.");
+        const decision = (0, moderator_1.moderate)(text);
+        if (decision.action === "block") {
+            vscode.window.showWarningMessage(decision.reason);
+            return;
         }
-        catch (err) {
-            vscode.window.showErrorMessage(err.message || "Unknown error.");
+        const apiKey = await this.context.secrets.get("pact.openaiApiKey");
+        if (!apiKey) {
+            vscode.window.showErrorMessage("Set API key first.");
+            return;
         }
-    }));
+        this.client = new openai_1.default({ apiKey });
+        const start = Date.now();
+        const sentTime = new Date().toLocaleTimeString([], {
+            hour: "2-digit",
+            minute: "2-digit",
+        });
+        const response = await this.client.responses.create({
+            model: "gpt-4.1",
+            input: [
+                {
+                    role: "user",
+                    content: [{ type: "input_text", text }],
+                },
+            ],
+        });
+        const latency = Date.now() - start;
+        const receivedTime = new Date().toLocaleTimeString([], {
+            hour: "2-digit",
+            minute: "2-digit",
+        });
+        const output = response.output_text ||
+            JSON.stringify(response.output, null, 2);
+        this.view.webview.postMessage({
+            type: "response",
+            output,
+            meta: {
+                sentTime,
+                receivedTime,
+                latency,
+            },
+        });
+    }
+    getHtml() {
+        return `
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+  body {
+    margin:0;
+    background:var(--vscode-editor-background);
+    color:var(--vscode-editor-foreground);
+    font-family:var(--vscode-font-family);
+  }
+
+  #header {
+    padding:8px;
+    border-bottom:1px solid var(--vscode-editorWidget-border);
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+  }
+
+  #tabs {
+    display:flex;
+    border-bottom:1px solid var(--vscode-editorWidget-border);
+  }
+
+  .tab {
+    padding:8px 12px;
+    cursor:pointer;
+  }
+
+  .tab.active {
+    border-bottom:2px solid var(--vscode-focusBorder);
+  }
+
+  .view {
+    display:none;
+    padding:8px;
+  }
+
+  .view.active {
+    display:block;
+  }
+
+  textarea {
+    width:100%;
+    height:40vh;
+    background:var(--vscode-editor-background);
+    color:var(--vscode-editor-foreground);
+    border:none;
+    outline:none;
+    resize:none;
+  }
+
+  pre {
+    white-space:pre-wrap;
+  }
+
+  #sendBtn {
+    border-radius:50%;
+    width:32px;
+    height:32px;
+    cursor:pointer;
+  }
+</style>
+</head>
+<body>
+
+<div id="header">
+  <span id="time">${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+  <button id="sendBtn">⬆</button>
+</div>
+
+<div id="tabs">
+  <div class="tab active" data-target="promptView">Prompt</div>
+  <div class="tab" data-target="responseView">Response</div>
+  <div class="tab" data-target="codeView">Code</div>
+</div>
+
+<div id="promptView" class="view active">
+  <textarea id="promptArea"></textarea>
+</div>
+
+<div id="responseView" class="view">
+  <pre id="responseArea"></pre>
+</div>
+
+<div id="codeView" class="view">
+  <pre>// Code panel placeholder</pre>
+</div>
+
+<script>
+const vscode = acquireVsCodeApi();
+
+const tabs = document.querySelectorAll(".tab");
+const views = document.querySelectorAll(".view");
+const sendBtn = document.getElementById("sendBtn");
+const promptArea = document.getElementById("promptArea");
+const responseArea = document.getElementById("responseArea");
+const timeSpan = document.getElementById("time");
+
+function switchTab(targetId) {
+  tabs.forEach(t => t.classList.remove("active"));
+  views.forEach(v => v.classList.remove("active"));
+
+  document.querySelector('[data-target="'+targetId+'"]').classList.add("active");
+  document.getElementById(targetId).classList.add("active");
+}
+
+tabs.forEach(tab => {
+  tab.onclick = () => switchTab(tab.dataset.target);
+});
+
+sendBtn.onclick = () => {
+  vscode.postMessage({
+    type: "send",
+    payload: { text: promptArea.value }
+  });
+};
+
+window.addEventListener("message", event => {
+  const message = event.data;
+
+  if (message.type === "response") {
+    responseArea.textContent = message.output;
+
+    timeSpan.textContent =
+      message.meta.sentTime + " → " +
+      message.meta.receivedTime +
+      " (" + message.meta.latency + " ms)";
+
+    switchTab("responseView");
+  }
+});
+</script>
+
+</body>
+</html>
+`;
+    }
 }
 function deactivate() { }
-async function ensureWorkspace() {
-    if (!vscode.workspace.workspaceFolders) {
-        throw new Error("Open a workspace folder first.");
-    }
-    const root = vscode.workspace.workspaceFolders[0].uri.fsPath;
-    const pactDir = path.join(root, ".pact3");
-    if (!fs.existsSync(pactDir)) {
-        fs.mkdirSync(pactDir);
-    }
-    const chatsDir = path.join(pactDir, "chats");
-    if (!fs.existsSync(chatsDir)) {
-        fs.mkdirSync(chatsDir);
-    }
-}
-async function createNewChat() {
-    const root = vscode.workspace.workspaceFolders[0].uri.fsPath;
-    const chatsDir = path.join(root, ".pact3", "chats");
-    const existing = fs.readdirSync(chatsDir).length;
-    const chatName = `chat-${String(existing + 1).padStart(3, "0")}`;
-    const chatDir = path.join(chatsDir, chatName);
-    fs.mkdirSync(chatDir);
-    fs.writeFileSync(path.join(chatDir, "prompt.md"), "# Prompt\n\n");
-    fs.writeFileSync(path.join(chatDir, "response.md"), "");
-    return chatDir;
-}
 //# sourceMappingURL=extension.js.map
